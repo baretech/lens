@@ -1,0 +1,522 @@
+# **Universal Go Tracer - AI Agent Requirements Document**
+
+## **Project Overview**
+
+**Project Name**: `reflect` (github.com/baretech/reflect)  
+**Purpose**: Universal, zero-code-change tracing library for any Go application  
+**Core Innovation**: Reflection-based automatic instrumentation of variables and functions  
+
+## **1. Core Requirements**
+
+### **1.1 Universal Type Support**
+```go
+// MUST support wrapping ANY Go type automatically
+type Tracer interface {
+    // Generic wrappers - work with any type T
+    Wrap[T any](obj T) T
+    WrapPointer[T any](obj *T) *T  
+    WrapSlice[T any](slice []T) []T
+    WrapMap[K comparable, V any](m map[K]V) map[K]V
+    WrapChannel[T any](ch chan T) chan T
+    
+    // Interface wrapping
+    WrapInterface(obj interface{}) interface{}
+    
+    // Function wrapping  
+    WrapFunction(fn interface{}) interface{}
+}
+```
+
+### **1.2 Zero Code Modification**
+```go
+// Original application code MUST remain unchanged
+type User struct {
+    ID   int
+    Name string
+}
+
+func (u *User) Save() error {
+    // Existing logic - NO CHANGES REQUIRED
+    return nil
+}
+
+// Tracing integration - completely separate
+tracer := reflect.New()
+tracedUser := tracer.Wrap(&User{}).(*User)
+// Now ALL operations on tracedUser are automatically traced
+```
+
+### **1.3 Variable-Level Tracing**
+```go
+// MUST trace all variable operations:
+tracedUser.ID = 123        // Variable write traced
+name := tracedUser.Name    // Variable read traced  
+tracedUser.Save()          // Method call traced
+```
+
+## **2. Technical Architecture Requirements**
+
+### **2.1 Reflection Engine**
+```go
+type ReflectionEngine struct {
+    // MUST analyze any Go type at runtime
+    AnalyzeType(t reflect.Type) TypeInfo
+    
+    // MUST generate proxy types dynamically
+    CreateProxy(obj interface{}) interface{}
+    
+    // MUST intercept all method calls
+    InterceptMethods(obj interface{}) interface{}
+    
+    // MUST intercept all field access
+    InterceptFields(obj interface{}) interface{}
+}
+
+type TypeInfo struct {
+    Methods    []MethodInfo
+    Fields     []FieldInfo
+    Interfaces []InterfaceInfo
+}
+```
+
+### **2.2 Proxy Generation**
+```go
+type ProxyGenerator struct {
+    // MUST create runtime proxies that implement same interface
+    GenerateProxy(original interface{}) interface{}
+    
+    // MUST forward all calls to original with tracing
+    ForwardWithTrace(method string, args []interface{}) []interface{}
+    
+    // MUST handle all Go types: struct, interface, func, slice, map, chan
+    HandleStruct(obj interface{}) interface{}
+    HandleInterface(obj interface{}) interface{}
+    HandleFunction(fn interface{}) interface{}
+    HandleSlice(slice interface{}) interface{}
+    HandleMap(m interface{}) interface{}
+    HandleChannel(ch interface{}) interface{}
+}
+```
+
+### **2.3 Event System**
+```go
+type Event struct {
+    ID          string                 `json:"id"`
+    TraceID     string                 `json:"trace_id"`
+    Timestamp   time.Time              `json:"timestamp"`
+    Type        EventType              `json:"type"`
+    Component   string                 `json:"component"`
+    Function    string                 `json:"function,omitempty"`
+    Variable    string                 `json:"variable,omitempty"`
+    OldValue    interface{}            `json:"old_value,omitempty"`
+    NewValue    interface{}            `json:"new_value,omitempty"`
+    Arguments   []interface{}          `json:"arguments,omitempty"`
+    ReturnValue []interface{}          `json:"return_value,omitempty"`
+    Error       string                 `json:"error,omitempty"`
+    Duration    time.Duration          `json:"duration,omitempty"`
+    StackTrace  []string               `json:"stack_trace,omitempty"`
+    Goroutine   int                    `json:"goroutine"`
+}
+
+type EventType string
+const (
+    EventVariableRead    EventType = "variable_read"
+    EventVariableWrite   EventType = "variable_write"
+    EventFunctionCall    EventType = "function_call"
+    EventFunctionReturn  EventType = "function_return"
+    EventMethodCall      EventType = "method_call"
+    EventFieldAccess     EventType = "field_access"
+    EventSliceOperation  EventType = "slice_operation"
+    EventMapOperation    EventType = "map_operation"
+    EventChannelOperation EventType = "channel_operation"
+    EventError           EventType = "error"
+    EventPanic           EventType = "panic"
+)
+```
+
+## **3. API Requirements**
+
+### **3.1 Core API**
+```go
+package reflect
+
+// Main tracer creation
+func New(options ...Option) *Tracer
+func NewWithConfig(config Config) *Tracer
+
+// Universal wrapping - MUST work with any type
+func (t *Tracer) Wrap(obj interface{}) interface{}
+func (t *Tracer) WrapWithName(obj interface{}, name string) interface{}
+
+// Typed wrappers using generics
+func Wrap[T any](tracer *Tracer, obj T) T
+func WrapPointer[T any](tracer *Tracer, obj *T) *T
+
+// Manual tracing
+func (t *Tracer) StartSpan(name string) Span
+func (t *Tracer) TraceEvent(event Event)
+func (t *Tracer) TraceVariable(name string, oldVal, newVal interface{})
+
+// Configuration
+func (t *Tracer) SetLevel(level Level)
+func (t *Tracer) AddWriter(writer Writer)
+func (t *Tracer) AddFilter(filter Filter)
+func (t *Tracer) Enable()
+func (t *Tracer) Disable()
+```
+
+### **3.2 Configuration API**
+```go
+type Config struct {
+    Level       Level                  `yaml:"level"`
+    OutputDir   string                 `yaml:"output_dir"`
+    Writers     []WriterConfig         `yaml:"writers"`
+    Filters     []FilterConfig         `yaml:"filters"`
+    Performance PerformanceConfig      `yaml:"performance"`
+}
+
+type Level int
+const (
+    LevelOff Level = iota
+    LevelError
+    LevelWarn
+    LevelInfo
+    LevelDebug
+    LevelTrace
+)
+
+// Fluent configuration
+tracer := reflect.New().
+    SetLevel(reflect.LevelDebug).
+    AddWriter(reflect.NewJSONWriter("./traces")).
+    AddFilter(reflect.IncludePackages("github.com/myapp/*")).
+    Enable()
+```
+
+## **4. Performance Requirements**
+
+### **4.1 Overhead Specifications**
+- **When disabled**: Zero overhead (no performance impact)
+- **When enabled**: < 5% CPU overhead for typical applications
+- **Memory overhead**: < 10% additional memory usage
+- **Latency impact**: < 1ms additional latency per traced operation
+
+### **4.2 Scalability Requirements**
+```go
+// MUST handle high-throughput applications
+// - Support 10,000+ traced operations per second
+// - Support 1,000+ concurrent goroutines
+// - Support applications with 100+ types being traced
+// - Efficient memory management (no memory leaks)
+```
+
+### **4.3 Performance Monitoring**
+```go
+type PerformanceMetrics struct {
+    TracedOperations  int64         `json:"traced_operations"`
+    AverageOverhead   time.Duration `json:"average_overhead"`
+    MemoryUsage      int64         `json:"memory_usage"`
+    GoroutineCount   int           `json:"goroutine_count"`
+}
+
+func (t *Tracer) GetMetrics() PerformanceMetrics
+```
+
+## **5. Output Requirements**
+
+### **5.1 Writer Interface**
+```go
+type Writer interface {
+    Write(event Event) error
+    Flush() error
+    Close() error
+}
+
+// MUST implement these writers:
+type JSONFileWriter struct {
+    Path     string
+    Rotation RotationConfig
+}
+
+type ConsoleWriter struct {
+    Colored bool
+    Format  string
+}
+
+type NetworkWriter struct {
+    Endpoint string
+    Protocol string // http, grpc, tcp
+}
+
+type CSVWriter struct {
+    Path      string
+    Delimiter string
+}
+```
+
+### **5.2 Output Formats**
+```json
+// JSON format (default)
+{
+  "id": "evt_1234567890",
+  "trace_id": "trace_abc123",
+  "timestamp": "2024-01-01T12:00:00Z",
+  "type": "variable_write",
+  "component": "User",
+  "variable": "Name",
+  "old_value": "John",
+  "new_value": "Jane",
+  "stack_trace": ["main.go:42", "user.go:15"],
+  "goroutine": 1
+}
+```
+
+```csv
+# CSV format
+timestamp,type,component,variable,old_value,new_value,function,duration
+2024-01-01T12:00:00Z,variable_write,User,Name,John,Jane,,
+2024-01-01T12:00:01Z,function_call,User,Save,,,Save,150ms
+```
+
+## **6. Framework Integration Requirements**
+
+### **6.1 HTTP Middleware**
+```go
+// MUST provide HTTP middleware for popular frameworks
+func HTTPMiddleware(tracer *Tracer) func(http.Handler) http.Handler
+func GinMiddleware(tracer *Tracer) gin.HandlerFunc
+func EchoMiddleware(tracer *Tracer) echo.MiddlewareFunc
+```
+
+### **6.2 Database Integration**
+```go
+// MUST provide database driver wrappers
+func WrapSQLDB(tracer *Tracer, db *sql.DB) *sql.DB
+func WrapGORMDB(tracer *Tracer, db *gorm.DB) *gorm.DB
+```
+
+### **6.3 gRPC Integration**
+```go
+// MUST provide gRPC interceptors
+func UnaryServerInterceptor(tracer *Tracer) grpc.UnaryServerInterceptor
+func StreamServerInterceptor(tracer *Tracer) grpc.StreamServerInterceptor
+```
+
+## **7. Filter Requirements**
+
+### **7.1 Filter Interface**
+```go
+type Filter interface {
+    ShouldTrace(event Event) bool
+}
+
+// MUST implement these filters:
+func IncludePackages(patterns ...string) Filter
+func ExcludePackages(patterns ...string) Filter
+func IncludeFunctions(patterns ...string) Filter
+func ExcludeFunctions(patterns ...string) Filter
+func IncludeTypes(patterns ...string) Filter
+func ExcludeTypes(patterns ...string) Filter
+func MinDuration(duration time.Duration) Filter
+func SampleRate(rate float64) Filter
+```
+
+### **7.2 Configuration-Based Filtering**
+```yaml
+filters:
+  - type: include_packages
+    patterns: ["github.com/myapp/*", "github.com/myorg/*"]
+  - type: exclude_functions  
+    patterns: ["*.String", "*.GoString", "runtime.*"]
+  - type: min_duration
+    value: "1ms"
+  - type: sample_rate
+    value: 0.1  # 10% sampling
+```
+
+## **8. Error Handling Requirements**
+
+### **8.1 Panic Recovery**
+```go
+// MUST recover from panics in traced code
+func (t *Tracer) RecoverPanic() interface{}
+
+// MUST trace panic events
+type PanicEvent struct {
+    Event
+    PanicValue interface{} `json:"panic_value"`
+    Recovered  bool        `json:"recovered"`
+}
+```
+
+### **8.2 Error Propagation**
+```go
+// MUST NOT interfere with original error handling
+// Traced functions MUST return same errors as original
+// Tracing errors MUST NOT affect application flow
+```
+
+## **9. Concurrency Requirements**
+
+### **9.1 Thread Safety**
+```go
+// MUST be completely thread-safe
+// MUST support concurrent access from multiple goroutines
+// MUST handle race conditions in traced code
+// MUST NOT introduce new race conditions
+```
+
+### **9.2 Goroutine Tracking**
+```go
+// MUST track goroutine lifecycle
+type GoroutineEvent struct {
+    Event
+    GoroutineID int    `json:"goroutine_id"`
+    ParentID    int    `json:"parent_id,omitempty"`
+    Action      string `json:"action"` // "start", "end"
+}
+```
+
+## **10. Testing Requirements**
+
+### **10.1 Test Coverage**
+- **Unit tests**: 90%+ code coverage
+- **Integration tests**: Test with real applications
+- **Performance tests**: Benchmark overhead measurements
+- **Concurrency tests**: Race condition detection
+
+### **10.2 Example Applications**
+```go
+// MUST provide working examples for:
+// - Simple struct tracing
+// - HTTP server tracing  
+// - Database application tracing
+// - Microservice tracing
+// - CLI application tracing
+```
+
+## **11. Documentation Requirements**
+
+### **11.1 API Documentation**
+- Complete godoc documentation for all public APIs
+- Usage examples for every major feature
+- Performance characteristics documentation
+- Migration guides from other tracing libraries
+
+### **11.2 Guides**
+- Quick start guide (5-minute setup)
+- Integration guide for popular frameworks
+- Performance tuning guide
+- Troubleshooting guide
+- Best practices guide
+
+## **12. Deployment Requirements**
+
+### **12.1 Distribution**
+```go
+// MUST be distributed as standard Go module
+go get github.com/baretech/reflect
+
+// MUST support Go 1.18+ (for generics)
+// MUST have zero required dependencies
+// MUST provide optional integrations as separate modules
+```
+
+### **12.2 CLI Tool**
+```bash
+# MUST provide CLI tool for external tracing
+go install github.com/baretech/reflect/cmd/reflect
+
+# Usage examples:
+reflect attach --pid 1234 --config ./trace.yaml
+reflect run --binary ./myapp --trace-level debug
+reflect analyze ./traces --format html
+```
+
+## **13. Compatibility Requirements**
+
+### **13.1 Go Version Support**
+- **Minimum**: Go 1.18 (for generics)
+- **Recommended**: Go 1.21+
+- **Testing**: Test against Go 1.18, 1.19, 1.20, 1.21+
+
+### **13.2 Platform Support**
+- **Operating Systems**: Linux, macOS, Windows
+- **Architectures**: amd64, arm64
+- **Containers**: Docker, Kubernetes compatible
+
+## **14. Security Requirements**
+
+### **14.1 Data Privacy**
+```go
+// MUST provide data sanitization options
+type SanitizeConfig struct {
+    SanitizePasswords bool     `yaml:"sanitize_passwords"`
+    SanitizeTokens    bool     `yaml:"sanitize_tokens"`
+    SanitizeFields    []string `yaml:"sanitize_fields"`
+}
+
+// MUST NOT log sensitive data by default
+// MUST provide opt-in for sensitive data tracing
+```
+
+### **14.2 Performance Security**
+```go
+// MUST prevent DoS through excessive tracing
+// MUST have configurable rate limiting
+// MUST have memory usage limits
+// MUST have automatic circuit breakers
+```
+
+## **15. Success Criteria**
+
+### **15.1 Functional Success**
+- ✅ Can wrap ANY Go type without code changes
+- ✅ Traces variable reads/writes automatically  
+- ✅ Traces function/method calls automatically
+- ✅ Works with popular Go frameworks
+- ✅ Provides actionable debugging information
+
+### **15.2 Performance Success**
+- ✅ < 5% overhead when enabled
+- ✅ Zero overhead when disabled
+- ✅ Handles 10,000+ operations/second
+- ✅ Memory usage stays bounded
+
+### **15.3 Usability Success**
+- ✅ 5-minute setup for new projects
+- ✅ Works with existing applications unchanged
+- ✅ Clear, actionable trace output
+- ✅ Comprehensive documentation
+
+## **16. Implementation Priority**
+
+### **Phase 1: Core Foundation**
+1. Reflection engine for type analysis
+2. Basic proxy generation for structs
+3. Event system and basic tracing
+4. JSON file writer
+5. Basic filtering
+
+### **Phase 2: Universal Support**
+1. Interface wrapping
+2. Function wrapping
+3. Slice/map/channel support
+4. Performance optimization
+5. Console writer
+
+### **Phase 3: Advanced Features**
+1. Framework integrations
+2. Network writers
+3. Advanced filtering
+4. CLI tool
+5. Performance monitoring
+
+### **Phase 4: Production Ready**
+1. Comprehensive testing
+2. Documentation
+3. Examples and guides
+4. Security features
+5. Performance benchmarks
+
+This requirements document provides everything an AI agent needs to generate a production-ready universal Go tracing library. The agent should implement each requirement systematically, ensuring full compatibility with the specified APIs and performance characteristics.
